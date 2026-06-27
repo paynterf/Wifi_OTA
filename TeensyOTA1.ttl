@@ -1,0 +1,206 @@
+/*
+16 October 2021 G. Frank Paynter
+Tera Term macro to connect to Teensy and send latest .HEX file
+
+Tera Term is called via a post-build command in VS2019/VMicro
+like <path_to_ttpmacro.exe> /v <path_to_TeensyOTA1.ttl> <build_path>\<project_name>.hex> <COM port>
+ 
+The actual post-build command is contained in the 'board.txt' file as follows:
+ recipe.hooks.postbuild.1.pattern=cmd.exe /c "c:\Program Files (x86)\teraterm\ttpmacro.exe" /v "c:\users\Frank\Documents\Arduino\Teensy Projects\TeensyOTADemo\Test2.ttl" "{vm.runtime.build.final_output_path}" {serial.port} {build.project_name}
+ 
+When this is passed to tera term the arguments appear as follows:
+
+param1 = macro filename (TeensyOTA1.TTL)
+param2 = BuildPath ; used to find the .HEX file to transfer, like "C:\Ussers\Frank\Arduino\Teensy Projects\TeensyOTADemo\Release\"
+param3 = COMportstr ;"COMx" where 'x' is the actual number assigned
+param4 = INOfilename ;project file name like "TeensyOTADemo.ino"
+ 
+
+ Notes:
+	10/16/21: for verbose output, set VERBOSE = 1 (default is 0)
+	10/30/21: modified to remove hard-coded paths & filenames
+	01/02/22: revised to support multiple connection tries
+	09/02/23: revised to add 'Wrong COM port Selected?' hint
+	05/20/26: revised to look for 'reading hex lines' from FXutil.ccp instead of 'waiting
+*/
+/*-----------------------------------------------------------------------------*/
+/*-----------------------------------------------------------------------------*/
+
+VERBOSE = 0; set this to 1 for verbose progress indications
+
+/*06/23/26 for debug, use hard-coded path*/
+BuildPath = param2
+;BuildPath = "C:\Users\Frank\Documents\"
+strlen BuildPath
+if result > 0 then
+	pathlen = result
+	strremove BuildPath pathlen 1;remove trailing '\'
+
+
+;messagebox BuildPath 'file'
+else
+	messagebox 'BuildPath has zero length - aborting' "Error"
+	goto ERROR ;error exit - closes COM connection and TT
+endif
+
+COMportstr = param3
+strtrim COMportstr ' ' /*remove any leading/trailing spaces*/
+ComPortNumStr = COMportstr
+;messagebox ComPortNumStr 'info'
+strremove ComPortNumStr 1 3 /*isolate the com port number*/
+
+/*generate hex filename*/
+/*generate hex filename - ROBUST version for names with spaces/dates + .ino extension*/
+INOfilename = param4
+strtrim INOfilename ' '   
+
+HEXfilename = INOfilename
+strconcat HEXfilename '.hex'   /* turns "ProjectName.ino" into "ProjectName.ino.hex" */
+
+if VERBOSE then
+    sprintf2 msgstr "Final HEX path will be: %s\%s" BuildPath HEXfilename
+    messagebox msgstr 'DEBUG - HEX filename'
+endif
+
+:COMCONNECT
+/*connect to Teensy via COM <param2>*/
+sprintf2 cnct_str "/C=%s" ComPortNumStr /* actual string used by TT*/
+if VERBOSE then
+	sprintf2 msgstr "attempting to connnect to Teensy on COM%s using %s" ComPortNumStr cnct_str
+	messagebox msgstr 'info'
+	messagebox result 'result before testlink'
+endif
+
+testlink /* TT could already be connected*/
+
+if VERBOSE then
+	messagebox result 'result after testlink'
+endif
+
+/*if result = 0 then*/
+if result <> 2 then
+	connect cnct_str/* actually launch TT and make the connection. <result> = 2 for success*/
+endif
+
+if VERBOSE then
+	messagebox result 'result after connect try'
+endif
+
+/*01/02/22 now supports multiple connection tries (maybe you forgot to power up the other end?)*/
+if result <> 2 then
+	sprintf2 errstr "unable to connect to Teensy on %s" COMportstr
+/*	errstr = "unable to connect to Teensy on %s.  %s" COMportstr "Wrong COM Port Selected?"*/
+	strspecial errstr
+/*	yesnobox errstr "Connection Error"*/
+	messagebox errstr "Connection Error"
+	if result <> 1 then
+		goto ERROR /*error exit - closes COM connection and TT*/
+	else
+		result = 0
+		goto COMCONNECT
+	endif
+else 
+	/*if we get to here, we have a valid COM port connection*/
+	if VERBOSE then
+		sprintf2 msgstr "sending trigger command (%s) and waiting for %s" "U" "'reading hex lines'"
+		messagebox msgstr "info"
+	endif
+	
+	flushrecv /*01/10/22 added to consume any characters still present in rcv buffer*/
+	send 'U' /*actually send the trigger character*/
+	timeout = 5; seconds
+	/*wait 'waiting' /*on success, result = 1*/
+	wait 'reading hex lines...'/*on success, result = 1*/
+	
+	if result <> 1 then
+	/*09/02/23 revised to add 'Wrong COM port Selected?' hint/*
+/*		errstr = "Oops - timed out waiting for 'waiting' from Teensy! \n\nRobot Power Switch OFF?  Wrong COM port Selected?  Try Again?"*/
+		errstr = "Oops - timed out waiting for 'reading hex lines' from Teensy! \n\nRobot Power Switch OFF?  Wrong COM port Selected? \n\n\t\t   Try Again?"
+		strspecial errstr
+		yesnobox errstr "Connection Error"
+		if result <> 1 then
+			goto ERROR /*error exit - closes COM connection and TT*/
+		else
+			result = 0
+			goto COMCONNECT
+		endif
+		
+	else /* OK, got 'reading hex lines'...*/
+		if VERBOSE then
+			sprintf2 msgstr "got 'reading hex lines' string - sending file" 
+			messagebox  msgstr 'info'
+		endif
+		
+		/*10/30/21 chg to use constructed filename vs hard-coded*/
+		sprintf2 hexfilestr '%s\%s' BuildPath HEXfilename/* 01/02/2022 add trailing '\' back to BuildPath*/
+		if VERBOSE then
+			messagebox hexfilestr 'sendfile'
+		endif
+		sendfile hexfilestr 0 /*actually send the file. Note the 0 is required to make it work*/
+		
+		/*now we have to extract the number of lines from the 'enter xxxx to flash...' string*/
+		if VERBOSE then
+			sprintf2 msgstr "wait delay = %d just before the wait for 'enter'" timeout
+			messagebox msgstr 'wait delay value' 
+		endif
+
+		wait 'enter' /*get the next line from Teensy*/
+		if result = 0 then
+			messagebox "Oops - timed out waiting for 'enter' from Teensy" "Error"
+			goto ERROR /*error exit - closes COM connection and TT*/
+		else /* OK, got 'enter'...*/
+			if VERBOSE then
+				msgstr = "got string containing 'enter'"
+				messagebox msgstr 'info'
+			endif
+			
+			recvln/* this puts received line into 'inputstr'*/
+			if result = 1 then
+/*				; if VERBOSE then
+					; messagebox inputstr 'From Teensy'
+				; endif
+*/				
+				/*now extract number of lines from inputstr*/
+				strsplit inputstr ' ' /*puts numlines string into <groupmatchstr2>*/
+				strtrim groupmatchstr2 ' '/*trim any leading/trailing spaces*/
+
+				if result <> 0 then
+				if VERBOSE then
+					sprintf2 msgstr '%s lines received' groupmatchstr2 
+					messagebox msgstr 'From Teensy'
+				endif
+					
+					/*now send <groupmatchstr2> to Teensy to confirm update*/
+					if VERBOSE then
+						sprintf2 msgstr "sending '%s' to Teensy" groupmatchstr2
+						messagebox msgstr 'To Teensy'
+					endif
+
+					sendln groupmatchstr2/* actually sends the <numlines> value*/
+				else
+					messagebox 'groupmatchstr2 send failed' 'error'
+					goto ERROR /*error exit - closes COM connection and TT*/
+				endif
+
+			else
+				messagebox "nothing received from Teensy" info
+				goto ERROR /*error exit - closes COM connection and TT*/
+			endif
+		endif
+	endif
+endif
+
+:ERROR
+;if VERBOSE then
+	messagebox "closing COM port and Tera Term" "info"
+	pause 5 /*06/21/26 gfp added so I can see last output lines*/
+;endif
+
+
+
+testlink /*TT may or may not be connnected*/
+if result <> 0 then
+	disconnect 1 /*closes the COM port connection*/
+	closett /* closes teraterm*/
+endif
+end

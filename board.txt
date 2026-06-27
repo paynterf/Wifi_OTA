@@ -1,0 +1,4 @@
+
+#Updated 06/27/26 Post-Build: Copy .hex to Pi5
+recipe.hooks.deploy.preupload.1.pattern=python "C:\Users\Frank\Documents\Robot_Projects\Wifi_OTA\PostBuild_OTA.py" "{vm.runtime.build.final_output_path}" "{build.project_name}" "{build.project_path}" "{vm.runtime.build.intermediate_output_path}"
+recipe.hooks.deploy.preupload.1.use_shell_execute=true

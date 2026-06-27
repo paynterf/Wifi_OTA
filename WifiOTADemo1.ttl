@@ -1,0 +1,53 @@
+; Tera Term Macro to connect to an SSH host and run a command
+; Save this file with .ttl extension and run it via Tera Term
+
+; ==== CONFIGURATION ====
+hostname = '192.168.1.200'   ; SSH server IP or hostname
+username = 'pi'          ; SSH username
+password = 'raspberry'      ; SSH password
+port     = '22'              ; SSH port (default 22)
+command  = 'ls -l'           ; Command to execute after login
+
+VERBOSE = 1
+
+; ==== CONNECT ====
+; /ssh: Use SSH protocol
+; /auth=password: Use password authentication
+; /user=...: Username
+; /passwd=...: Password
+testlink /* TT could already be connected*/
+
+if VERBOSE then
+	messagebox result 'result after testlink'
+	sprintf2 cnctmsg '/ssh + %s: ' hostname
+	messagebox cnctmsg 'connect string'
+endif
+
+
+;connect '/ssh ' + RobotPi5 + ':' + 22 + ' /auth=password /user=' + ;pi + ' /passwd=' + raspberry
+
+connect '192.168.1.200 /ssh /auth=password /user=pi /passwd=raspberry'
+
+
+messagebox result 'result after connect'
+
+; Wait for the shell prompt (adjust to your system's prompt)
+wait '$ ' '# ' '> '
+
+; ==== EXECUTE COMMAND ====
+messagebox result 'result after wait & before sendln'
+
+sendln command
+messagebox result 'result after sendln'
+
+; Wait for command output to finish
+wait '$ ' '# ' '> '
+messagebox result 'result after wait'
+
+sprintf2 msgstr "Final HEX path will be:" 
+messagebox msgstr 'DEBUG - HEX filename'
+
+; ==== OPTIONAL: Close session ====
+sendln 'exit'
+
+;closett
