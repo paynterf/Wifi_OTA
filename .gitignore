@@ -1,0 +1,29 @@
+# Visual Studio / Visual Micro
+.vs/
+__vm/
+obj/
+bin/
+build/
+
+# Build outputs
+*.hex
+*.elf
+*.bin
+*.eep
+*.lst
+
+# Visual Studio project files we don't need
+*.sln
+*.vcxproj*
+*.suo
+*.user
+
+# Logs and temps
+*.log
+*.tmp
+*.bak
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
